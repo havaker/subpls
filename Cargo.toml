@@ -5,3 +5,5 @@ authors = ["havaker"]
 edition = "2018"
 
 [dependencies]
+xmlrpc = "0.13.1"
+
