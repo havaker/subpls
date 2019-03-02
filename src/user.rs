@@ -1,43 +1,6 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufReader;
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
-use std::mem;
 
-fn os_hash(filename: &str) -> Result<(String, u64), std::io::Error> {
-    const BLOCK: i64 = 65536;
-    const ITERATIONS: i64 = BLOCK / 8;
-
-    let file = File::open(filename)?;
-    let filesize = file.metadata()?.len();
-
-    let mut hash: u64 = filesize;
-    let mut word: u64;
-
-    let mut reader = BufReader::with_capacity(BLOCK as usize, file);
-    let mut buffer = [0u8; 8];
-
-    for _ in 0..ITERATIONS {
-        reader.read_exact(&mut buffer)?;
-        unsafe {
-            word = mem::transmute(buffer);
-        }
-        hash = hash.wrapping_add(word);
-    }
-
-    reader.seek(SeekFrom::End(-BLOCK))?;
-
-    for _ in 0..ITERATIONS {
-        reader.read_exact(&mut buffer)?;
-        unsafe {
-            word = mem::transmute(buffer);
-        }
-        hash = hash.wrapping_add(word);
-    }
-    Ok((format!("{:01$x}", hash, 16), filesize))
-}
+mod hash;
 
 #[derive(Debug)]
 pub struct User {
@@ -92,7 +55,7 @@ impl User {
     pub fn search(&self, filenames: Vec<String>) -> Vec<Subtitles> {
         let mut query = Vec::new();
         for filename in filenames {
-            match os_hash(&filename) {
+            match hash::os_hash(&filename) {
                 Ok(q) => query.push(q),
                 Err(e) => println!("{}", e.to_string()),
             }
