@@ -7,4 +7,5 @@ fn main() {
     let user = user.unwrap();
     let subs = user.search(vec!["test.mp4".to_owned()]);
     println!("{:?}", subs);
+    user.download(subs);
 }
