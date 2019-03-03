@@ -1,4 +1,9 @@
+use flate2::read::GzDecoder;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io;
+use std::io::prelude::*;
+use std::path::Path;
 
 mod hash;
 
@@ -83,22 +88,7 @@ impl User {
         }
     }
 
-    fn download_request(
-        &self,
-        sub_ids: Vec<String>,
-    ) -> Result<xmlrpc::Value, xmlrpc::Error> {
-        let request = xmlrpc::Request::new("DownloadSubtitles")
-            .arg(self.token.as_str())
-            .arg(xmlrpc::Value::Array(
-                sub_ids
-                    .into_iter()
-                    .map(|x| xmlrpc::Value::from(x))
-                    .collect(),
-            ));
-        Ok(request.call_url(&self.api)?)
-    }
-
-    pub fn download(&self, mut subs: Vec<Subtitles>) {
+    pub fn download(&self, mut subs: Vec<Subtitles>) -> std::io::Result<()> {
         let mut ids = Vec::new();
         for sub in &subs {
             ids.push(sub.subid.clone());
@@ -134,7 +124,30 @@ impl User {
             }
             Err(e) => println!("{}", e.to_string()),
         }
-        //println!("{:?}", subs);
+
+        for sub in &subs {
+            if sub.b64gz.is_none() {
+                continue;
+            }
+            match base64::decode(&sub.b64gz.as_ref().unwrap()) {
+                Ok(decoded) => {
+                    let movie_filename = sub.filename.as_ref().unwrap();
+                    let stem = Path::new(movie_filename)
+                        .file_stem()
+                        .map(|x| x.to_str().unwrap_or(movie_filename))
+                        .unwrap_or(movie_filename);
+                    let sub_filename = format!(
+                        "{}.{}.{}",
+                        stem, sub.sublanguageid, sub.format
+                    );
+                    let mut file = File::create(sub_filename)?;
+                    let extracted = User::decode_reader(decoded)?;
+                    file.write_all(extracted.as_slice())?;
+                }
+                Err(e) => println!("{}", e.to_string()),
+            }
+        }
+        Ok(())
     }
 
     const LOGIN_LOCATION: &'static str =
@@ -187,6 +200,21 @@ impl User {
             .arg(xmlrpc::Value::Array(prepared));
 
         Ok(request.call_url(self.api.as_str())?)
+    }
+
+    fn download_request(
+        &self,
+        sub_ids: Vec<String>,
+    ) -> Result<xmlrpc::Value, xmlrpc::Error> {
+        let request = xmlrpc::Request::new("DownloadSubtitles")
+            .arg(self.token.as_str())
+            .arg(xmlrpc::Value::Array(
+                sub_ids
+                    .into_iter()
+                    .map(|x| xmlrpc::Value::from(x))
+                    .collect(),
+            ));
+        Ok(request.call_url(&self.api)?)
     }
 
     fn extract_subids(response: xmlrpc::Value) -> Vec<Subtitles> {
@@ -249,5 +277,12 @@ impl User {
             }
         }
         best
+    }
+
+    fn decode_reader(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
+        let mut gz = GzDecoder::new(&bytes[..]);
+        let mut s = Vec::new();
+        gz.read_to_end(&mut s)?;
+        Ok(s)
     }
 }
