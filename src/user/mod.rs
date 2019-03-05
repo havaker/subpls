@@ -88,7 +88,10 @@ impl User {
         }
     }
 
-    pub fn download(&self, mut subs: Vec<Subtitles>) -> std::io::Result<()> {
+    pub fn download(
+        &self,
+        mut subs: Vec<Subtitles>,
+    ) -> Result<i32, std::io::Error> {
         let mut ids = Vec::new();
         for sub in &subs {
             ids.push(sub.subid.clone());
@@ -125,6 +128,8 @@ impl User {
             Err(e) => println!("{}", e.to_string()),
         }
 
+        let mut downloaded_count = 0;
+
         for sub in &subs {
             if sub.b64gz.is_none() {
                 continue;
@@ -143,11 +148,12 @@ impl User {
                     let mut file = File::create(sub_filename)?;
                     let extracted = User::decode_reader(decoded)?;
                     file.write_all(extracted.as_slice())?;
+                    downloaded_count += 1;
                 }
                 Err(e) => println!("{}", e.to_string()),
             }
         }
-        Ok(())
+        Ok(downloaded_count)
     }
 
     const LOGIN_LOCATION: &'static str =
