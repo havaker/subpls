@@ -1,3 +1,4 @@
+use colored::*;
 use flate2::read::GzDecoder;
 use std::collections::HashMap;
 use std::fs::File;
@@ -69,7 +70,7 @@ impl User {
                     names.insert(h.clone(), filename.clone());
                     query.push((h, s));
                 }
-                Err(e) => println!("{}", e.to_string()),
+                Err(e) => eprintln!("{} {}", "error: ".red(), e.to_string()),
             }
         }
         match self.search_request(&query) {
@@ -82,7 +83,7 @@ impl User {
                 })
                 .collect::<Vec<Subtitles>>(),
             Err(e) => {
-                println!("{}", e.to_string());
+                eprintln!("{} {}", "error: ".red(), e.to_string());
                 Vec::new()
             }
         }
@@ -125,7 +126,7 @@ impl User {
                     }
                 });
             }
-            Err(e) => println!("{}", e.to_string()),
+            Err(e) => eprintln!("{} {}", "error: ".red(), e.to_string()),
         }
 
         let mut downloaded_count = 0;
@@ -150,7 +151,7 @@ impl User {
                     file.write_all(extracted.as_slice())?;
                     downloaded_count += 1;
                 }
-                Err(e) => println!("{}", e.to_string()),
+                Err(e) => eprintln!("{} {}", "error: ".red(), e.to_string()),
             }
         }
         Ok(downloaded_count)

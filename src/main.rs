@@ -1,7 +1,7 @@
 mod user;
 use user::*;
 
-use clap::{Arg, SubCommand};
+use clap::Arg;
 use colored::*;
 use std::process;
 
@@ -91,6 +91,10 @@ fn main() {
         subs.len(),
         if subs.len() == 1 { "" } else { "s" }
     );
+
+    if subs.is_empty() {
+        process::exit(2);
+    }
 
     match user.download(subs) {
         Ok(count) => {
