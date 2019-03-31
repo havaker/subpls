@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Read;
@@ -63,6 +64,60 @@ impl User {
         Ok(user)
     }
 
+    pub fn search(&self, mut movies: Vec<Movie>) -> Result<Vec<Movie>, Error> {
+        let response = self.search_request(&movies)?;
+        User::response_status(&response)?;
+        let mut subs_map = User::extract_subids(response);
+        for mut movie in &mut movies {
+            if let Some(os_info) = &movie.os_info {
+                movie.subs = subs_map.remove(&os_info.hash).unwrap_or_default();
+            }
+        }
+        Ok(movies)
+    }
+
+    fn extract_subids(
+        response: xmlrpc::Value,
+    ) -> HashMap<String, Vec<Subtitles>> {
+        let mut ret = HashMap::new();
+        let results = response.get("data").and_then(|data| data.as_array());
+        let mut extract_item = |item: &xmlrpc::Value| {
+            if item.as_struct().is_none() {
+                return;
+            }
+            let item = item.as_struct().unwrap();
+            let mut fields = [
+                ("MovieHash", ""),
+                ("IDSubtitleFile", ""),
+                ("SubFormat", ""),
+                ("SubRating", ""),
+                ("ISO639", ""),
+            ];
+            for (ref name, ref mut val) in &mut fields {
+                if let Some(v) = item.get(*name).and_then(|x| x.as_str()) {
+                    *val = v;
+                } else {
+                    return;
+                }
+            }
+            let hash = fields[0].0.to_owned();
+            let subs = ret.entry(hash).or_insert(Vec::new());
+            subs.push(Subtitles {
+                format: String::from(fields[2].1),
+                id: String::from(fields[1].1),
+                rating: fields[3].1.parse().unwrap_or(0f64),
+                lang: String::from(fields[4].1),
+                b64gz: None,
+            })
+        };
+        results.map(|array| {
+            for item in array {
+                extract_item(item)
+            }
+        });
+        ret
+    }
+
     const LOGIN_LOCATION: &'static str =
         "https://api.opensubtitles.org/xml-rpc";
 
@@ -77,6 +132,44 @@ impl User {
             .arg(language)
             .arg("TemporaryUserAgent");
         Ok(request.call_url(User::LOGIN_LOCATION)?)
+    }
+
+    fn search_request(
+        &self,
+        movies: &Vec<Movie>,
+    ) -> Result<xmlrpc::Value, Error> {
+        let mut prepared = Vec::new();
+
+        for movie in movies {
+            if let Some(os_info) = &movie.os_info {
+                let entry = xmlrpc::Value::Struct(
+                    vec![
+                        (
+                            "moviehash".to_string(),
+                            xmlrpc::Value::from(os_info.hash.as_str()),
+                        ),
+                        (
+                            "moviebytesize".to_string(),
+                            xmlrpc::Value::from(os_info.size as i64),
+                        ),
+                        (
+                            "sublanguageid".to_string(),
+                            xmlrpc::Value::from(self.sublanguageid.as_str()),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect(),
+                );
+
+                prepared.push(entry);
+            }
+        }
+
+        let request = xmlrpc::Request::new("SearchSubtitles")
+            .arg(self.token.as_str())
+            .arg(xmlrpc::Value::Array(prepared));
+
+        Ok(request.call_url(self.api.as_str())?)
     }
 
     fn response_status(response: &xmlrpc::Value) -> Result<(), Error> {
@@ -150,7 +243,7 @@ impl Movie {
         }
     }
 
-    pub fn compute_os_hash(&mut self) -> Result<(), std::io::Error> {
+    pub fn compute_os_hash(&mut self) -> Result<(), Error> {
         self.os_info = Some(os_hash(&self.filename)?);
         Ok(())
     }

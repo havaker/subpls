@@ -242,11 +242,10 @@ impl User {
         let mut ret = Vec::new();
         let results = response.get("data").and_then(|data| data.as_array());
         let mut extract_item = |item: &xmlrpc::Value| {
-            let item = item.as_struct();
-            if item.is_none() {
+            if item.as_struct().is_none() {
                 return;
             }
-            let item = item.unwrap();
+            let item = item.as_struct().unwrap();
             let hash = item.get("MovieHash").and_then(|x| x.as_str());
             let subid = item.get("IDSubtitleFile").and_then(|x| x.as_str());
             let format = item.get("SubFormat").and_then(|x| x.as_str());
