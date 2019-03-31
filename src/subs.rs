@@ -1,10 +1,14 @@
+use flate2::read::GzDecoder;
 use std::collections::HashMap;
 use std::fs::File;
+use std::io;
+use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::mem;
+use std::path::Path;
 
 #[derive(Debug)]
 pub struct User {
@@ -13,12 +17,16 @@ pub struct User {
     sublanguageid: String,
 }
 
+#[derive(Debug)]
 pub enum Error {
     BadStatus(String),
     Io(std::io::Error),
     Xmlrpc(xmlrpc::Error),
     NoToken,
+    Base64,
     Malformed,
+    NothingToSearch,
+    NothingToSave,
 }
 
 impl From<std::io::Error> for Error {
@@ -30,6 +38,12 @@ impl From<std::io::Error> for Error {
 impl From<xmlrpc::Error> for Error {
     fn from(error: xmlrpc::Error) -> Self {
         Error::Xmlrpc(error)
+    }
+}
+
+impl From<base64::DecodeError> for Error {
+    fn from(_error: base64::DecodeError) -> Self {
+        Error::Base64
     }
 }
 
@@ -76,6 +90,48 @@ impl User {
         Ok(movies)
     }
 
+    pub fn download(
+        &self,
+        mut movies: Vec<Movie>,
+    ) -> Result<Vec<Movie>, Error> {
+        let mut ids = Vec::new();
+        for movie in &movies {
+            for sub in &movie.subs {
+                ids.push(sub);
+            }
+        }
+        let response = self.download_request(ids)?;
+        User::response_status(&response)?;
+        let mut b64gzs = HashMap::new();
+        let results = response.get("data").and_then(|data| data.as_array());
+        let mut extract_item = |item: &xmlrpc::Value| {
+            if item.as_struct().is_none() {
+                return;
+            }
+            let item = item.as_struct().unwrap();
+            let mut fields = [("data", ""), ("idsubtitlefile", "")];
+            for (ref name, ref mut val) in &mut fields {
+                if let Some(v) = item.get(*name).and_then(|x| x.as_str()) {
+                    *val = v;
+                } else {
+                    return;
+                }
+            }
+            b64gzs.insert(fields[1].1.to_string(), fields[0].1.to_string());
+        };
+        results.map(|array| {
+            for item in array {
+                extract_item(item)
+            }
+        });
+        for movie in &mut movies {
+            for mut sub in &mut movie.subs {
+                sub.b64gz = b64gzs.get(&sub.id).map(|b| b.clone());
+            }
+        }
+        Ok(movies)
+    }
+
     fn extract_subids(
         response: xmlrpc::Value,
     ) -> HashMap<String, Vec<Subtitles>> {
@@ -91,7 +147,7 @@ impl User {
                 ("IDSubtitleFile", ""),
                 ("SubFormat", ""),
                 ("SubRating", ""),
-                ("ISO639", ""),
+                ("SubLanguageID", ""),
             ];
             for (ref name, ref mut val) in &mut fields {
                 if let Some(v) = item.get(*name).and_then(|x| x.as_str()) {
@@ -100,7 +156,7 @@ impl User {
                     return;
                 }
             }
-            let hash = fields[0].0.to_owned();
+            let hash = fields[0].1.to_owned();
             let subs = ret.entry(hash).or_insert(Vec::new());
             subs.push(Subtitles {
                 format: String::from(fields[2].1),
@@ -139,7 +195,6 @@ impl User {
         movies: &Vec<Movie>,
     ) -> Result<xmlrpc::Value, Error> {
         let mut prepared = Vec::new();
-
         for movie in movies {
             if let Some(os_info) = &movie.os_info {
                 let entry = xmlrpc::Value::Struct(
@@ -164,12 +219,28 @@ impl User {
                 prepared.push(entry);
             }
         }
-
+        if prepared.len() < 1 {
+            return Err(Error::NothingToSearch);
+        }
         let request = xmlrpc::Request::new("SearchSubtitles")
             .arg(self.token.as_str())
             .arg(xmlrpc::Value::Array(prepared));
-
         Ok(request.call_url(self.api.as_str())?)
+    }
+
+    fn download_request(
+        &self,
+        sub_ids: Vec<&Subtitles>,
+    ) -> Result<xmlrpc::Value, xmlrpc::Error> {
+        let request = xmlrpc::Request::new("DownloadSubtitles")
+            .arg(self.token.as_str())
+            .arg(xmlrpc::Value::Array(
+                sub_ids
+                    .into_iter()
+                    .map(|x| xmlrpc::Value::from(x.id.as_str()))
+                    .collect(),
+            ));
+        Ok(request.call_url(&self.api)?)
     }
 
     fn response_status(response: &xmlrpc::Value) -> Result<(), Error> {
@@ -229,9 +300,9 @@ pub fn os_hash(filename: &str) -> Result<Hash, std::io::Error> {
 
 #[derive(Debug)]
 pub struct Movie {
-    filename: String,
+    pub filename: String,
+    pub subs: Vec<Subtitles>,
     os_info: Option<Hash>,
-    subs: Vec<Subtitles>,
 }
 
 impl Movie {
@@ -243,13 +314,67 @@ impl Movie {
         }
     }
 
+    pub fn collection(filenames: &Vec<&str>) -> Vec<Movie> {
+        let mut ret = Vec::new();
+        for f in filenames {
+            ret.push(Movie::new(f.to_string()));
+        }
+        ret
+    }
+
     pub fn compute_os_hash(&mut self) -> Result<(), Error> {
         self.os_info = Some(os_hash(&self.filename)?);
         Ok(())
     }
+
+    pub fn filter_subs(&mut self) {
+        let mut highest = -1f64;
+        let mut id = String::new();
+        for sub in &self.subs {
+            if sub.rating > highest {
+                highest = sub.rating;
+                id = sub.id.clone();
+            }
+        }
+        self.subs.retain(|sub| sub.id == id);
+    }
+
+    pub fn save_subs(&self) -> Result<(), Error> {
+        for sub in &self.subs {
+            if sub.b64gz.is_none() {
+                continue;
+            }
+            let decoded = base64::decode(&sub.b64gz.as_ref().unwrap())?;
+            let stem = Path::new(&self.filename)
+                .file_stem()
+                .map(|x| x.to_str().unwrap_or(&self.filename))
+                .unwrap_or(&self.filename);
+            let sub_filename = format!("{}.{}.{}", stem, sub.lang, sub.format);
+            let mut file = File::create(sub_filename)?;
+            let extracted = Movie::decode_reader(decoded)?;
+            file.write_all(extracted.as_slice())?;
+            return Ok(());
+        }
+        Err(Error::NothingToSave)
+    }
+
+    pub fn present_rating(&self) -> Option<f64> {
+        if self.subs.len() > 0 {
+            Some(self.subs[0].rating)
+        } else {
+            None
+        }
+    }
+
+    fn decode_reader(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
+        let mut gz = GzDecoder::new(&bytes[..]);
+        let mut s = Vec::new();
+        gz.read_to_end(&mut s)?;
+        Ok(s)
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Subtitles {
     id: String,
     lang: String,

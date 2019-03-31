@@ -1,11 +1,9 @@
-mod user;
-use user::*;
-
 use clap::Arg;
 use colored::*;
 use std::process;
 
 mod subs;
+use subs::*;
 
 fn main() {
     let matches = clap::App::new("Subpls")
@@ -34,8 +32,8 @@ fn main() {
                 .short("l")
                 .long("language")
                 .value_name("LANGUAGE")
-                .help("ISO639 2 letter code, 'en' e.g.")
-                .default_value("en")
+                .help("SubLanguageID, 'eng' e.g.")
+                .default_value("eng")
                 .takes_value(true),
         )
         .arg(
@@ -71,7 +69,7 @@ fn main() {
     );
 
     if let Err(s) = user {
-        eprintln!("{} {}", "error: ".red(), s);
+        eprintln!("{} {:?}", "error: ".red(), s);
         process::exit(1);
     }
     let user = user.unwrap();
@@ -87,26 +85,71 @@ fn main() {
         }
     );
 
-    let subs = user.search(files.into_iter().map(|x| x.to_string()).collect());
-    println!(
-        "found {} subtitle{}",
-        subs.len(),
-        if subs.len() == 1 { "" } else { "s" }
-    );
+    let mut movies = Movie::collection(&files);
 
-    if subs.is_empty() {
-        process::exit(2);
+    for movie in &mut movies {
+        if let Err(e) = movie.compute_os_hash() {
+            eprintln!(
+                "{} {} ({:?})",
+                "could not compute hash for: ".red(),
+                movie.filename,
+                e
+            );
+        }
     }
 
-    match user.download(subs) {
-        Ok(count) => {
-            let msg = format!(
-                "downloaded {} subtitle{}!",
-                count,
-                if count == 1 { "" } else { "s" }
+    let mut search_result = user.search(movies);
+    if let Err(e) = search_result {
+        eprintln!("{} ({:?})", "could not search for subtitles ".red(), e);
+        std::process::exit(1);
+    }
+    let mut movies = search_result.unwrap();
+
+    for movie in &mut movies {
+        println!(
+            "found {} subtitles for {}",
+            movie.subs.len(),
+            movie.filename
+        );
+        movie.filter_subs();
+        if let Some(rating) = movie.present_rating() {
+            println!(
+                "  choosing ones with rating: {}/10{}",
+                rating,
+                if rating > 0.0 { "" } else { " (unrated)" }
             );
-            println!("{}", msg.green())
         }
-        Err(e) => println!("{} {}", "downloading failed:".red(), e.to_string()),
+    }
+
+    let download_result = user.download(movies);
+    if let Err(e) = download_result {
+        eprintln!("{} ({:?})", "could not download subtitles ".red(), e);
+        std::process::exit(1);
+    }
+    let mut movies = download_result.unwrap();
+    println!("{}", "download completed successfully".green());
+
+    let mut ok = 0;
+    for movie in &movies {
+        if let Err(e) = movie.save_subs() {
+            eprintln!(
+                "{} {} {} ({:?})",
+                "saving subtitles for".red(),
+                movie.filename,
+                "failed".red(),
+                e
+            );
+        } else {
+            ok += 1;
+        }
+    }
+    if ok > 0 {
+        println!(
+            "{} {} {}{}",
+            "saved".green(),
+            ok,
+            "subtitle".green(),
+            (if ok == 1 { "" } else { "s" }).green()
+        );
     }
 }
