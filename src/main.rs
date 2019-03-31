@@ -5,6 +5,8 @@ use clap::Arg;
 use colored::*;
 use std::process;
 
+mod subs;
+
 fn main() {
     let matches = clap::App::new("Subpls")
         .version("1.0")

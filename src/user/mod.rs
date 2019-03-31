@@ -26,6 +26,17 @@ pub struct Subtitles {
     b64gz: Option<String>,
 }
 
+fn response_status(response: &xmlrpc::Value) -> Result<(), String> {
+    if let Some(status) = response.get("status").and_then(|x| x.as_str()) {
+        if status == "200 OK" {
+            return Ok(());
+        } else {
+            return Err(status.to_owned());
+        }
+    }
+    return Err("no status code".to_owned());
+}
+
 impl User {
     // login to OS server, should be called always when starting talking with
     // server. It returns token, which must be used in later communication.
@@ -41,6 +52,9 @@ impl User {
                     token: String::new(),
                     sublanguageid: language.to_owned(),
                 };
+                if let Err(status) = response_status(&response) {
+                    return Err(format!("server responded with {}", status));
+                }
                 match response.get("token").and_then(|x| x.as_str()) {
                     Some(token) => user.token = token.to_string(),
                     None => return Err("failed to get token".to_owned()),
