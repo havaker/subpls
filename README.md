@@ -3,7 +3,7 @@ Subpls is a simple console app that downloads subtitles from https://opensubtitl
 # Usage
 To download english subtitles for `test.mp4` use:
 ```
-subpls test.mp4 -l en
+subpls test.mp4 -l eng
 ```
 For more options check:
 ```
