@@ -5,7 +5,13 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::mem;
 
-pub fn os_hash(filename: &str) -> Result<(String, u64), std::io::Error> {
+#[derive(Debug)]
+pub struct Hash {
+    pub hash: String,
+    pub size: u64,
+}
+
+pub fn os_hash(filename: &str) -> Result<Hash, std::io::Error> {
     const BLOCK: i64 = 65536;
     const ITERATIONS: i64 = BLOCK / 8;
 
@@ -35,5 +41,9 @@ pub fn os_hash(filename: &str) -> Result<(String, u64), std::io::Error> {
         }
         hash = hash.wrapping_add(word);
     }
-    Ok((format!("{:01$x}", hash, 16), filesize))
+
+    Ok(Hash {
+        hash: format!("{:01$x}", hash, 16),
+        size: filesize,
+    })
 }

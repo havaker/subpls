@@ -2,13 +2,12 @@ use clap::Arg;
 use colored::*;
 use std::process;
 
-mod subs;
-use subs::*;
+mod user;
+use user::*;
 
 fn main() {
     let matches = clap::App::new("Subpls")
-        .version("1.0")
-        .author("Michał Sala <0havaker@gmail.com>")
+        .version("1.1")
         .about("Download subtitles from OpenSubtitles")
         .arg(
             Arg::with_name("username")
@@ -69,7 +68,7 @@ fn main() {
     );
 
     if let Err(s) = user {
-        eprintln!("{} {:?}", "error: ".red(), s);
+        eprintln!("{} ({:?})", "could not login to OpenSubtitles".red(), s);
         process::exit(1);
     }
     let user = user.unwrap();
@@ -98,7 +97,7 @@ fn main() {
         }
     }
 
-    let mut search_result = user.search(movies);
+    let search_result = user.search(movies);
     if let Err(e) = search_result {
         eprintln!("{} ({:?})", "could not search for subtitles ".red(), e);
         std::process::exit(1);
@@ -126,7 +125,7 @@ fn main() {
         eprintln!("{} ({:?})", "could not download subtitles ".red(), e);
         std::process::exit(1);
     }
-    let mut movies = download_result.unwrap();
+    let movies = download_result.unwrap();
     println!("{}", "download completed successfully".green());
 
     let mut ok = 0;
@@ -143,6 +142,7 @@ fn main() {
             ok += 1;
         }
     }
+
     if ok > 0 {
         println!(
             "{} {} {}{}",
