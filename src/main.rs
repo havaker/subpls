@@ -91,7 +91,7 @@ fn main() {
             eprintln!(
                 "{} {} ({:?})",
                 "could not compute hash for: ".red(),
-                movie.filename,
+                movie.path_str(),
                 e
             );
         }
@@ -104,12 +104,18 @@ fn main() {
     }
     let mut movies = search_result.unwrap();
 
+    let mut found = 0;
+
     for movie in &mut movies {
+        if movie.os_info.is_none() {
+            continue;
+        }
         println!(
             "found {} subtitles for {}",
             movie.subs.len(),
-            movie.filename
+            movie.path_str()
         );
+        found += movie.subs.len();
         movie.filter_subs();
         if let Some(rating) = movie.present_rating() {
             println!(
@@ -118,6 +124,11 @@ fn main() {
                 if rating > 0.0 { "" } else { " (unrated)" }
             );
         }
+    }
+
+    if found == 0 {
+        eprintln!("{}", "no subtitles to download, exiting".yellow());
+        std::process::exit(1);
     }
 
     let download_result = user.download(movies);
@@ -130,11 +141,14 @@ fn main() {
 
     let mut ok = 0;
     for movie in &movies {
+        if movie.subs.len() == 0 {
+            continue;
+        }
         if let Err(e) = movie.save_subs() {
             eprintln!(
                 "{} {} {} ({:?})",
                 "saving subtitles for".red(),
-                movie.filename,
+                movie.path_str(),
                 "failed".red(),
                 e
             );

@@ -8,6 +8,7 @@ pub enum Error {
     Malformed,
     NothingToSearch,
     NothingToSave,
+    BadPath,
 }
 
 impl From<std::io::Error> for Error {

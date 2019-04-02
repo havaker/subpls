@@ -1,9 +1,7 @@
 use std::fs::File;
-use std::io::BufReader;
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::mem;
+use std::path::Path;
 
 #[derive(Debug)]
 pub struct Hash {
@@ -11,11 +9,11 @@ pub struct Hash {
     pub size: u64,
 }
 
-pub fn os_hash(filename: &str) -> Result<Hash, std::io::Error> {
+pub fn os_hash(path: &Path) -> Result<Hash, std::io::Error> {
     const BLOCK: i64 = 65536;
     const ITERATIONS: i64 = BLOCK / 8;
 
-    let file = File::open(filename)?;
+    let file = File::open(path)?;
     let filesize = file.metadata()?.len();
 
     let mut hash: u64 = filesize;

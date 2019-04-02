@@ -2,7 +2,7 @@ use flate2::read::GzDecoder;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path::PathBuf;
 
 pub mod error;
 pub mod hash;
@@ -21,30 +21,30 @@ pub struct Subtitles {
 
 #[derive(Debug)]
 pub struct Movie {
-    pub filename: String,
+    pub path: PathBuf,
     pub subs: Vec<Subtitles>,
     pub os_info: Option<Hash>,
 }
 
 impl Movie {
-    pub fn new(filename: String) -> Movie {
+    pub fn new(path: PathBuf) -> Movie {
         Movie {
-            filename: filename,
+            path: path,
             os_info: None,
             subs: Vec::new(),
         }
     }
 
-    pub fn collection(filenames: &Vec<&str>) -> Vec<Movie> {
+    pub fn collection(files: &Vec<&str>) -> Vec<Movie> {
         let mut ret = Vec::new();
-        for f in filenames {
-            ret.push(Movie::new(f.to_string()));
+        for f in files {
+            ret.push(Movie::new(PathBuf::from(f)));
         }
         ret
     }
 
     pub fn compute_os_hash(&mut self) -> Result<(), Error> {
-        self.os_info = Some(os_hash(&self.filename)?);
+        self.os_info = Some(os_hash(self.path.as_path())?);
         Ok(())
     }
 
@@ -66,12 +66,12 @@ impl Movie {
                 continue;
             }
             let decoded = base64::decode(&sub.b64gz.as_ref().unwrap())?;
-            let stem = Path::new(&self.filename)
-                .file_stem()
-                .map(|x| x.to_str().unwrap_or(&self.filename))
-                .unwrap_or(&self.filename);
-            let sub_filename = format!("{}.{}.{}", stem, sub.lang, sub.format);
-            let mut file = File::create(sub_filename)?;
+            let extension = format!("{}.{}", sub.lang, sub.format);
+            let mut sub_path = self.path.clone();
+            if sub_path.set_extension(extension) == false {
+                return Err(Error::BadPath);
+            }
+            let mut file = File::create(sub_path.as_path())?;
             let extracted = Movie::decode_reader(decoded)?;
             file.write_all(extracted.as_slice())?;
             return Ok(());
@@ -84,6 +84,13 @@ impl Movie {
             Some(self.subs[0].rating)
         } else {
             None
+        }
+    }
+
+    pub fn path_str(&self) -> &str {
+        match self.path.to_str() {
+            Some(x) => x,
+            None => "",
         }
     }
 
